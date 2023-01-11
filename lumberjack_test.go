@@ -815,6 +815,58 @@ func TestForceFileMode(t *testing.T) {
 	}
 }
 
+func TestOnNewFile(t *testing.T) {
+	currentTime = fakeTime
+	megabyte = 1
+	dir := makeTempDir("TestNewFile", t)
+	defer os.RemoveAll(dir)
+
+	initialLine := []byte("first log line\n")
+
+	l := &Logger{
+		MaxSize:  20, // to keep initial line + single next write
+		Filename: logFile(dir),
+		OnNewFile: func() []byte {
+			return initialLine
+		},
+	}
+	defer l.Close()
+
+	// write to the first line
+	b := []byte("boo!")
+	n, err := l.Write(b)
+	isNil(err, t)
+	equals(len(b), n, t)
+	// check that file contains both, initial line and the written message
+	existsWithContent(logFile(dir), append(initialLine[:], b[:]...), t)
+	fileCount(dir, 1, t)
+
+	newFakeTime()
+
+	// write that proceeds rotation
+	n, err = l.Write(b)
+	isNil(err, t)
+	equals(len(b), n, t)
+	// check that file contains both, initial line and the written message
+	existsWithContent(logFile(dir), append(initialLine[:], b[:]...), t)
+	fileCount(dir, 2, t)
+
+	// check that callback that returns nil, writes nothing
+	l.OnNewFile = func() []byte {
+		return nil
+	}
+
+	newFakeTime()
+
+	// write that proceeds rotation
+	n, err = l.Write(b)
+	isNil(err, t)
+	equals(len(b), n, t)
+	// check that file contains written message only
+	existsWithContent(logFile(dir), b, t)
+	fileCount(dir, 3, t)
+}
+
 func TestJson(t *testing.T) {
 	data := []byte(`
 {
