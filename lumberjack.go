@@ -3,7 +3,7 @@
 // Note that this is v2.0 of lumberjack, and should be imported using gopkg.in
 // thusly:
 //
-//   import "gopkg.in/natefinch/lumberjack.v2"
+//	import "gopkg.in/natefinch/lumberjack.v2"
 //
 // The package name remains simply lumberjack, and the code resides at
 // https://github.com/natefinch/lumberjack under the v2.0 branch.
@@ -41,7 +41,7 @@ const (
 	defaultTimeSeparator = "-"
 	compressSuffix       = ".gz"
 	defaultMaxSize       = 100
-	defaultFileMode  = 0600
+	defaultFileMode      = 0600
 )
 
 // ensure we always implement io.WriteCloser
@@ -69,7 +69,7 @@ var _ io.WriteCloser = (*Logger)(nil)
 // `/var/log/foo/server.log`, a backup created at 6:30pm on Nov 11 2016 would
 // use the filename `/var/log/foo/server-2016-11-04T18-30-00.000.log`
 //
-// Cleaning Up Old Log Files
+// # Cleaning Up Old Log Files
 //
 // Whenever a new logfile gets created, old log files may be deleted.  The most
 // recent files according to the encoded timestamp will be retained, up to a
@@ -127,6 +127,11 @@ type Logger struct {
 	// using gzip. The default is not to perform compression.
 	Compress bool `json:"compress" yaml:"compress"`
 
+	// OnNewFile is a callback to be triggered once new file has been created
+	// (e.g. on initial log or after rotation). All bytes returned from this
+	// function will be guaranteed written at the very beginning of the file.
+	OnNewFile func() []byte
+
 	size int64
 	file *os.File
 	mu   sync.Mutex
@@ -156,11 +161,9 @@ func (l *Logger) Write(p []byte) (n int, err error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	writeLen := int64(len(p))
-	if writeLen > l.max() {
-		return 0, fmt.Errorf(
-			"write length %d exceeds maximum file size %d", writeLen, l.max(),
-		)
+	writeLen, err := l.checkWriteLen(p)
+	if err != nil {
+		return 0, err
 	}
 
 	if l.file == nil {
@@ -175,9 +178,31 @@ func (l *Logger) Write(p []byte) (n int, err error) {
 		}
 	}
 
+	return l.write(p)
+}
+
+// checkWriteLen checks whether these bytes fit maximum file size, so they may be written.
+// Rotation may be needed before the writing. Returns length of passed array if no error.
+func (l *Logger) checkWriteLen(p []byte) (int64, error) {
+	writeLen := int64(len(p))
+	if writeLen > l.max() {
+		return 0, fmt.Errorf(
+			"write length %d exceeds maximum file size %d", writeLen, l.max(),
+		)
+	}
+	return writeLen, nil
+}
+
+// write actually just writes to file and updates the cached file size
+// without checking MaxSize and making any rotations.
+func (l *Logger) write(p []byte) (n int, err error) {
+	_, err = l.checkWriteLen(p)
+	if err != nil {
+		return 0, err
+	}
+
 	n, err = l.file.Write(p)
 	l.size += int64(n)
-
 	return n, err
 }
 
@@ -275,6 +300,11 @@ func (l *Logger) openNew() error {
 
 	l.file = f
 	l.size = 0
+
+	if l.OnNewFile != nil {
+		_, _ = l.write(l.OnNewFile())
+	}
+
 	return nil
 }
 
