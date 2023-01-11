@@ -851,7 +851,7 @@ func TestOnNewFile(t *testing.T) {
 	existsWithContent(logFile(dir), append(initialLine[:], b[:]...), t)
 	fileCount(dir, 2, t)
 
-	// ce=heck that callback that returns nil, writes nothing
+	// check that callback that returns nil, writes nothing
 	l.OnNewFile = func() []byte {
 		return nil
 	}
